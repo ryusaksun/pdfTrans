@@ -1,0 +1,45 @@
+# Dockerfile for Hugging Face Spaces deployment
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+
+WORKDIR /app
+
+EXPOSE 7860
+
+ENV PYTHONUNBUFFERED=1
+
+# 安装系统依赖
+RUN apt-get update && \
+     apt-get install --no-install-recommends -y libgl1 libglib2.0-0 libxext6 libsm6 libxrender1 build-essential && \
+     rm -rf /var/lib/apt/lists/*
+
+# 安装 Python 依赖
+COPY pyproject.toml .
+RUN uv pip install --system --no-cache -r pyproject.toml && babeldoc --version && babeldoc --warmup
+
+COPY . .
+
+# 强制更新 babeldoc
+ADD "https://www.random.org/cgi-bin/randbyte?nbytes=10&format=h" skipcache
+
+RUN uv pip install --system --no-cache . && \
+    uv pip install --system --no-cache --compile-bytecode -U babeldoc "pymupdf<1.25.3" && \
+    babeldoc --version && \
+    babeldoc --warmup
+
+RUN pdf2zh --version
+
+# === HF Spaces 适配 ===
+# 创建非 root 用户（HF Spaces 安全要求）
+RUN useradd -m -u 1000 user
+USER user
+
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH
+
+WORKDIR $HOME/app
+
+# 复制应用文件
+COPY --chown=user . $HOME/app
+
+# 启动 WebUI，绑定到 0.0.0.0:7860
+CMD ["pdf2zh", "--gui", "--server-port", "7860"]
