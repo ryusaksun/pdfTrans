@@ -126,7 +126,7 @@ def _translate_wrapper(
         logging.getLogger("peewee").setLevel(logging.WARNING)
 
         queue_handler = QueueHandler(logger_queue)
-        logging.basicConfig(level=logging.INFO, handlers=[queue_handler])
+        logging.basicConfig(level=logging.INFO, handlers=[queue_handler], force=True)
 
         config = create_babeldoc_config(settings, file)
 
