@@ -1,0 +1,87 @@
+@import "tailwindcss";
+@source "./lib";
+@source ".";
+
+:root {
+  --bg: #0c0f1a;
+  --bg-elevated: #141829;
+  --bg-card: #1a1f35;
+  --bg-input: #1e2440;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  --accent-glow: rgba(99, 102, 241, 0.15);
+  --text: #e8eaf0;
+  --text-dim: #7b82a0;
+  --text-muted: #4a5070;
+  --border: #252a40;
+  --border-hover: #3a4060;
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --radius: 12px;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
+
+/* Form elements */
+select, input, textarea {
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+select:focus, input:focus, textarea:focus {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+select option {
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+/* Checkbox styling */
+input[type="checkbox"] {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-hover);
+  border-radius: 4px;
+  background: var(--bg-input);
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+  flex-shrink: 0;
+}
+input[type="checkbox"]:checked {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+input[type="checkbox"]:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}

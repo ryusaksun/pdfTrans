@@ -85,6 +85,12 @@ async def main() -> int:
         print(f"pdf2zh-next version: {__version__}")
         return 0
 
+    if settings.basic.json_stream:
+        from pdf2zh_next.json_stream import run_json_stream
+
+        await run_json_stream(settings)
+        return 0
+
     logger.info("Warmup babeldoc assets...")
     babeldoc.assets.assets.warmup()
 

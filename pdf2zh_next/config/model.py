@@ -56,6 +56,10 @@ class BasicSettings(BaseModel):
         description="Restore offline assets package from the specified file",
     )
     version: bool = Field(default=False, description="Show version then exit")
+    json_stream: bool = Field(
+        default=False,
+        description="Enable JSON Lines streaming mode for external TUI",
+    )
 
 
 class GUISettings(BaseModel):
@@ -255,6 +259,11 @@ class SettingsModel(BaseModel):
         if self.basic.warmup:
             # warmup mode only download and verify assets
             # so no need to validate other settings
+            return
+
+        if self.basic.json_stream:
+            # json_stream mode receives settings from stdin
+            # so no need to validate CLI settings here
             return
 
         if self.basic.generate_offline_assets and self.basic.restore_offline_assets:

@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Default capabilities for PDFMathTranslate","local":true,"windows":["*"],"permissions":["core:default","core:event:default","core:event:allow-listen","core:event:allow-emit","dialog:default","dialog:allow-open","shell:default","shell:allow-open","notification:default","notification:allow-notify"]}}
