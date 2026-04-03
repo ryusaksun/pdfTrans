@@ -7,6 +7,8 @@ mod python_bridge;
 use std::sync::Arc;
 
 use commands::{CmdSender, SchemaCache};
+use python_bridge::protocol::PythonCommand;
+use tauri::Manager;
 use tokio::sync::Mutex;
 
 fn main() {
@@ -30,6 +32,18 @@ fn main() {
             commands::cmd_load_config,
             commands::cmd_save_config,
         ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                let handle: tauri::AppHandle = window.app_handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = handle.state::<CmdSender>();
+                    let guard = state.0.lock().await;
+                    if let Some(sender) = guard.as_ref() {
+                        let _ = sender.send(PythonCommand::Shutdown).await;
+                    }
+                });
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

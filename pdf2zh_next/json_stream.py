@@ -179,39 +179,61 @@ def _serialize_event(event: dict) -> dict:
     return out
 
 
+async def _do_translate_one(settings_dict: dict, file_path: str, file_index: int) -> None:
+    """Translate a single file, tagging all events with file_index."""
+    try:
+        settings = SettingsModel(**settings_dict)
+        async for event in do_translate_async_stream(settings, Path(file_path)):
+            tagged = _serialize_event(event)
+            tagged["file_index"] = file_index
+            tagged["file_path"] = file_path
+            _emit(tagged)
+            if event["type"] in ("finish", "error"):
+                break
+    except TranslationError as e:
+        _emit({
+            "type": "error",
+            "file_index": file_index,
+            "file_path": file_path,
+            "error": str(e),
+            "error_type": e.__class__.__name__,
+            "details": getattr(e, "original_error", "")
+            or getattr(e, "traceback_str", "")
+            or "",
+        })
+    except asyncio.CancelledError:
+        _emit({
+            "type": "error",
+            "file_index": file_index,
+            "file_path": file_path,
+            "error": "Translation cancelled",
+            "error_type": "CancelledError",
+            "details": "",
+        })
+    except Exception as e:
+        _emit({
+            "type": "error",
+            "file_index": file_index,
+            "file_path": file_path,
+            "error": str(e),
+            "error_type": type(e).__name__,
+            "details": "",
+        })
+
+
 async def _do_translate(settings_dict: dict, files: list[str]) -> None:
-    """Run translation for given files, emitting events to stdout."""
-    for file_path in files:
-        try:
-            settings = SettingsModel(**settings_dict)
-            async for event in do_translate_async_stream(settings, Path(file_path)):
-                _emit(_serialize_event(event))
-                if event["type"] in ("finish", "error"):
-                    break
-        except TranslationError as e:
-            _emit({
-                "type": "error",
-                "error": str(e),
-                "error_type": e.__class__.__name__,
-                "details": getattr(e, "original_error", "")
-                or getattr(e, "traceback_str", "")
-                or "",
-            })
-        except asyncio.CancelledError:
-            _emit({
-                "type": "error",
-                "error": "Translation cancelled",
-                "error_type": "CancelledError",
-                "details": "",
-            })
-            return
-        except Exception as e:
-            _emit({
-                "type": "error",
-                "error": str(e),
-                "error_type": type(e).__name__,
-                "details": "",
-            })
+    """Run translation for all files concurrently."""
+    if len(files) == 1:
+        await _do_translate_one(settings_dict, files[0], 0)
+    else:
+        # Emit batch_start so frontend knows total count
+        _emit({"type": "batch_start", "total_files": len(files),
+               "files": [Path(f).name for f in files]})
+        tasks = [
+            asyncio.create_task(_do_translate_one(settings_dict, f, i))
+            for i, f in enumerate(files)
+        ]
+        await asyncio.gather(*tasks, return_exceptions=True)
 
 
 async def run_json_stream(settings: SettingsModel) -> None:

@@ -72,7 +72,16 @@ pub async fn start_backend(
                 event = proc.recv_event() => {
                     match event {
                         Some(evt) => { let _ = app_handle.emit("backend-event", &evt); }
-                        None => break,
+                        None => {
+                            // Python process exited — notify frontend
+                            let _ = app_handle.emit("backend-event", &serde_json::json!({
+                                "type": "error",
+                                "error": "Python backend process exited unexpectedly",
+                                "error_type": "ProcessExited",
+                                "details": ""
+                            }));
+                            break;
+                        }
                     }
                 }
                 _ = tokio::time::sleep(std::time::Duration::from_millis(50)) => {

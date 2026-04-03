@@ -22,34 +22,64 @@ impl PythonProcess {
         let work_dir = dirs::download_dir()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_default().join("Downloads"));
 
-        // Try entry point first (pdf2zh_next --json-stream)
-        let child_result = Command::new("pdf2zh_next")
-            .args(["--json-stream"])
-            .current_dir(&work_dir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn();
+        let extra_path = build_path();
 
-        let mut child = match child_result {
-            Ok(child) => child,
-            Err(_) => {
-                // Fallback: python -m pdf2zh_next --json-stream
-                let python = find_python()?;
-                Command::new(&python)
-                    .args(["-m", "pdf2zh_next", "--json-stream"])
+        // Strategy 1: Use embedded Python inside .app bundle
+        let mut child_opt: Option<Child> = None;
+        if let Some(embedded) = find_embedded_python() {
+            // embedded = .../Resources/python/bin/python3
+            // PYTHONHOME = .../Resources/python  (2 levels up)
+            let python_home = embedded.parent().unwrap().parent().unwrap();
+            if let Ok(c) = Command::new(&embedded)
+                .args(["-m", "pdf2zh_next", "--json-stream"])
+                .current_dir(&work_dir)
+                .env("PYTHONHOME", python_home)
+                .env("PATH", &extra_path)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true)
+                .spawn()
+            {
+                child_opt = Some(c);
+            }
+        }
+
+        // Strategy 2: Find pdf2zh_next in PATH / common locations
+        if child_opt.is_none() {
+            let candidates = find_pdf2zh_candidates();
+            for cmd in &candidates {
+                if let Ok(c) = Command::new(cmd)
+                    .args(["--json-stream"])
                     .current_dir(&work_dir)
+                    .env("PATH", &extra_path)
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .kill_on_drop(true)
                     .spawn()
-                    .with_context(|| {
-                        format!(
-                            "Failed to spawn pdf2zh_next. Tried 'pdf2zh_next' and '{python} -m pdf2zh_next'"
-                        )
-                    })?
+                {
+                    child_opt = Some(c);
+                    break;
+                }
+            }
+        }
+
+        // Strategy 3: python -m pdf2zh_next
+        let mut child = match child_opt {
+            Some(c) => c,
+            None => {
+                let python = find_python()?;
+                Command::new(&python)
+                    .args(["-m", "pdf2zh_next", "--json-stream"])
+                    .current_dir(&work_dir)
+                    .env("PATH", &extra_path)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .kill_on_drop(true)
+                    .spawn()
+                    .with_context(|| "Failed to spawn pdf2zh_next backend")?
             }
         };
 
@@ -172,10 +202,64 @@ impl PythonProcess {
     }
 }
 
+/// Find the embedded Python inside the .app bundle (Contents/Resources/python/bin/python3).
+fn find_embedded_python() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    // exe is at .app/Contents/MacOS/binary
+    let resources = exe.parent()?.parent()?.join("Resources").join("python").join("bin").join("python3");
+    if resources.exists() {
+        Some(resources)
+    } else {
+        None
+    }
+}
+
+/// Build an extended PATH that includes common user binary locations.
+fn build_path() -> String {
+    let home = dirs::home_dir().unwrap_or_default();
+    let mut paths: Vec<String> = vec![
+        home.join(".local/bin").to_string_lossy().to_string(),
+        home.join(".cargo/bin").to_string_lossy().to_string(),
+        "/usr/local/bin".to_string(),
+        "/opt/homebrew/bin".to_string(),
+        "/opt/homebrew/sbin".to_string(),
+    ];
+    // Include existing PATH
+    if let Ok(existing) = std::env::var("PATH") {
+        paths.push(existing);
+    }
+    paths.join(":")
+}
+
+/// Find candidate paths for the pdf2zh_next command.
+fn find_pdf2zh_candidates() -> Vec<String> {
+    let home = dirs::home_dir().unwrap_or_default();
+    let mut candidates = vec![
+        home.join(".local/bin/pdf2zh_next").to_string_lossy().to_string(),
+        home.join(".local/bin/pdf2zh").to_string_lossy().to_string(),
+        "pdf2zh_next".to_string(),
+        "pdf2zh".to_string(),
+    ];
+    // Check uv tool installs
+    let uv_bin = home.join(".local/share/uv/tools/pdf2zh-next/bin/pdf2zh_next");
+    if uv_bin.exists() {
+        candidates.insert(0, uv_bin.to_string_lossy().to_string());
+    }
+    candidates
+}
+
 /// Find a suitable Python executable.
 pub fn find_python() -> Result<String> {
-    for candidate in ["python3", "python"] {
-        if which::which(candidate).is_ok() {
+    let home = dirs::home_dir().unwrap_or_default();
+    let candidates = [
+        home.join(".local/bin/python3").to_string_lossy().to_string(),
+        "/opt/homebrew/bin/python3".to_string(),
+        "/usr/local/bin/python3".to_string(),
+        "python3".to_string(),
+        "python".to_string(),
+    ];
+    for candidate in &candidates {
+        if which::which(candidate).is_ok() || std::path::Path::new(candidate).exists() {
             return Ok(candidate.to_string());
         }
     }

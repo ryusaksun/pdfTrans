@@ -10,11 +10,16 @@
   let currentView: View = $state("loading");
   let schema: any = $state(null);
   let backendError: string = $state("");
-  let progressData: any = $state({ stage: "", overall_progress: 0, stage_progress: 0 });
   let logs: string[] = $state([]);
-  let result: any = $state(null);
-  let tokenUsage: any = $state(null);
-  let stages: any[] = $state([]);
+  let droppedFiles: string[] = $state([]);
+
+  // Multi-file state
+  let totalFiles: number = $state(0);
+  let fileNames: string[] = $state([]);
+  let fileProgress: Record<number, any> = $state({});
+  let fileStages: Record<number, any[]> = $state({});
+  let fileResults: { result: any; tokenUsage: any; filePath: string }[] = $state([]);
+  let finishedCount: number = $state(0);
 
   onMount(async () => {
     try {
@@ -23,36 +28,77 @@
 
       await listen("backend-event", (event: any) => {
         const data = event.payload;
+        const fi = data.file_index ?? 0;
+
         switch (data.type) {
+          case "batch_start":
+            totalFiles = data.total_files;
+            fileNames = data.files || [];
+            break;
           case "stage_summary":
-            stages = data.stages || [];
+            fileStages[fi] = data.stages || [];
+            fileStages = { ...fileStages };
             break;
           case "progress_start":
           case "progress_update":
           case "progress_end":
-            progressData = data;
+            fileProgress[fi] = data;
+            fileProgress = { ...fileProgress };
             break;
           case "finish":
-            result = data.translate_result;
-            tokenUsage = data.token_usage;
-            currentView = "result";
+            fileResults = [...fileResults, {
+              result: data.translate_result,
+              tokenUsage: data.token_usage,
+              filePath: data.file_path || "",
+            }];
+            finishedCount = fileResults.length;
+            // All files done?
+            if (finishedCount >= totalFiles) {
+              currentView = "result";
+            }
             break;
           case "error":
             if (currentView === "progress") {
-              backendError = data.error;
-              currentView = "config";
+              if (totalFiles <= 1) {
+                backendError = data.error;
+                currentView = "config";
+              } else {
+                // For batch: count as finished (with error), continue
+                fileResults = [...fileResults, {
+                  result: null,
+                  tokenUsage: null,
+                  filePath: data.file_path || "",
+                }];
+                finishedCount = fileResults.length;
+                if (finishedCount >= totalFiles) {
+                  currentView = "result";
+                }
+              }
             }
             break;
         }
       });
 
       await listen("backend-log", (event: any) => {
-        logs = [...logs.slice(-199), event.payload as string];
+        logs = [...logs.slice(-299), event.payload as string];
       });
 
       await listen("config-schema", (event: any) => {
         schema = event.payload;
         currentView = "config";
+      });
+
+      // Listen for file drop events (drag PDF onto window)
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      getCurrentWindow().onDragDropEvent((event) => {
+        if (event.payload.type === "drop" && currentView === "config") {
+          const paths = event.payload.paths.filter((p: string) =>
+            p.toLowerCase().endsWith(".pdf")
+          );
+          if (paths.length > 0) {
+            droppedFiles = paths;
+          }
+        }
       });
 
       await invoke("start_backend");
@@ -65,9 +111,12 @@
 
   function handleTranslate(settings: any, files: string[]) {
     logs = [];
-    progressData = { stage: "", overall_progress: 0, stage_progress: 0 };
-    result = null;
-    tokenUsage = null;
+    fileProgress = {};
+    fileStages = {};
+    fileResults = [];
+    finishedCount = 0;
+    totalFiles = files.length;
+    fileNames = files.map(f => f.split("/").pop() || f);
     backendError = "";
     currentView = "progress";
     import("@tauri-apps/api/core").then(({ invoke }) => {
@@ -91,10 +140,12 @@
   {#if currentView === "loading"}
     <LoadingView />
   {:else if currentView === "config"}
-    <ConfigView {schema} error={backendError} onTranslate={handleTranslate} />
+    <ConfigView {schema} error={backendError} {droppedFiles} onTranslate={handleTranslate} />
   {:else if currentView === "progress"}
-    <ProgressView {progressData} {stages} {logs} onCancel={handleCancel} />
+    <ProgressView
+      {fileProgress} {fileStages} {fileNames} {totalFiles} {finishedCount} {logs}
+      onCancel={handleCancel} />
   {:else if currentView === "result"}
-    <ResultView {result} {tokenUsage} onNewTranslation={handleNewTranslation} />
+    <ResultView results={fileResults} onNewTranslation={handleNewTranslation} />
   {/if}
 </main>
