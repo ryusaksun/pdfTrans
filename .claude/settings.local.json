@@ -90,7 +90,12 @@
       "Bash(/Users/ryuichi/Documents/GitHub/PDFMathTranslate-next/pdf2zh_app/src-tauri/target/release/bundle/macos/PDFMathTranslate.app/Contents/Resources/python/bin/python3 -c 'import pdf2zh_next; print\\('\\\\''import OK'\\\\''\\)')",
       "Bash(/Users/ryuichi/Documents/GitHub/PDFMathTranslate-next/pdf2zh_app/src-tauri/target/release/bundle/macos/PDFMathTranslate.app/Contents/Resources/python/bin/python3 -c ':*)",
       "Bash(codesign --force --options runtime --timestamp --entitlements /Users/ryuichi/Documents/GitHub/PDFMathTranslate-next/pdf2zh_app/src-tauri/entitlements.plist --sign 'Developer ID Application: saikun sun \\(2FJFJ2WAF8\\)' /Users/ryuichi/Documents/GitHub/PDFMathTranslate-next/pdf2zh_app/src-tauri/target/release/bundle/macos/PDFMathTranslate.app/Contents/Resources/python/lib/libpython3.13.dylib)",
-      "Bash(codesign --deep --force --options runtime --timestamp --entitlements /Users/ryuichi/Documents/GitHub/PDFMathTranslate-next/pdf2zh_app/src-tauri/entitlements.plist --sign 'Developer ID Application: saikun sun \\(2FJFJ2WAF8\\)' /Users/ryuichi/Documents/GitHub/PDFMathTranslate-next/pdf2zh_app/src-tauri/target/release/bundle/macos/PDFMathTranslate.app)"
+      "Bash(codesign --deep --force --options runtime --timestamp --entitlements /Users/ryuichi/Documents/GitHub/PDFMathTranslate-next/pdf2zh_app/src-tauri/entitlements.plist --sign 'Developer ID Application: saikun sun \\(2FJFJ2WAF8\\)' /Users/ryuichi/Documents/GitHub/PDFMathTranslate-next/pdf2zh_app/src-tauri/target/release/bundle/macos/PDFMathTranslate.app)",
+      "Bash(gh release:*)",
+      "Bash(npx svelte-check:*)",
+      "Bash(rm -rf /Applications/PDFMathTranslate.app)",
+      "Bash(cp -R /Users/ryuichi/Documents/GitHub/PDFMathTranslate-next/pdf2zh_app/src-tauri/target/release/bundle/macos/PDFMathTranslate.app /Applications/)",
+      "Bash(xattr -dr com.apple.quarantine /Applications/PDFMathTranslate.app)"
     ]
   }
 }

@@ -3,6 +3,10 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 /// Events received from the Python subprocess via stdout (JSON Lines).
+///
+/// Most job-related events carry a `job_id`; we pass through as untyped
+/// `serde_json::Value` on the wire and let the frontend route by `job_id`.
+/// Rust only needs to recognize control-flow events (ready, config_schema).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum PythonEvent {
@@ -18,8 +22,26 @@ pub enum PythonEvent {
         languages: indexmap::IndexMap<String, String>,
     },
 
+    #[serde(rename = "job_enqueued")]
+    JobEnqueued {
+        job_id: String,
+        #[serde(default)]
+        files: Vec<String>,
+        #[serde(default)]
+        file_paths: Vec<String>,
+        #[serde(default)]
+        total_files: u32,
+    },
+
+    #[serde(rename = "job_cancelled")]
+    JobCancelled { job_id: String },
+
     #[serde(rename = "stage_summary")]
     StageSummary {
+        #[serde(default)]
+        job_id: String,
+        #[serde(default)]
+        file_index: u32,
         stages: Vec<StageDef>,
         part_index: u32,
         total_parts: u32,
@@ -36,12 +58,24 @@ pub enum PythonEvent {
 
     #[serde(rename = "finish")]
     Finish {
+        #[serde(default)]
+        job_id: String,
+        #[serde(default)]
+        file_index: u32,
+        #[serde(default)]
+        file_path: String,
         translate_result: serde_json::Value,
         token_usage: Option<HashMap<String, TokenUsage>>,
     },
 
     #[serde(rename = "error")]
     Error {
+        #[serde(default)]
+        job_id: String,
+        #[serde(default)]
+        file_index: u32,
+        #[serde(default)]
+        file_path: String,
         error: String,
         error_type: String,
         #[serde(default)]
@@ -64,6 +98,10 @@ pub struct StageDef {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProgressData {
+    #[serde(default)]
+    pub job_id: String,
+    #[serde(default)]
+    pub file_index: u32,
     #[serde(default)]
     pub stage: String,
     #[serde(default)]
@@ -124,12 +162,16 @@ pub struct FieldSchema {
 pub enum PythonCommand {
     #[serde(rename = "translate")]
     Translate {
+        job_id: String,
         settings: serde_json::Value,
         files: Vec<String>,
     },
 
     #[serde(rename = "cancel")]
-    Cancel,
+    Cancel {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        job_id: Option<String>,
+    },
 
     #[serde(rename = "validate")]
     Validate { settings: serde_json::Value },

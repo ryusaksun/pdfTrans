@@ -602,6 +602,7 @@ def create_babeldoc_config(settings: SettingsModel, file: Path) -> BabelDOCConfi
         auto_enable_ocr_workaround=settings.pdf.auto_enable_ocr_workaround,
         pool_max_workers=settings.translation.pool_max_workers,
         auto_extract_glossary=not settings.translation.no_auto_extract_glossary,
+        save_auto_extracted_glossary=settings.translation.save_auto_extracted_glossary,
         primary_font_family=settings.translation.primary_font_family,
         only_include_translated_page=settings.pdf.only_include_translated_page,
         # BabelDOC v0.5.1 new options

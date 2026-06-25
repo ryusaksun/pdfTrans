@@ -8,14 +8,16 @@ Protocol:
 Events (Python → consumer):
   {"type": "ready", "version": "...", "engines": [...]}
   {"type": "config_schema", "engines": [...], "languages": {...}}
-  {"type": "stage_summary", ...}
-  {"type": "progress_start|progress_update|progress_end", ...}
-  {"type": "finish", "translate_result": {...}, "token_usage": {...}}
-  {"type": "error", "error": "...", "error_type": "...", "details": "..."}
+  {"type": "job_enqueued", "job_id": "...", "files": ["name", ...], "total_files": N}
+  {"type": "job_cancelled", "job_id": "..."}
+  {"type": "stage_summary", "job_id": "...", ...}
+  {"type": "progress_start|progress_update|progress_end", "job_id": "...", ...}
+  {"type": "finish", "job_id": "...", "translate_result": {...}, "token_usage": {...}}
+  {"type": "error", "job_id": "...", "error": "...", "error_type": "...", "details": "..."}
 
 Commands (consumer → Python):
-  {"cmd": "translate", "settings": {...}, "files": [...]}
-  {"cmd": "cancel"}
+  {"cmd": "translate", "job_id": "...", "settings": {...}, "files": [...]}
+  {"cmd": "cancel", "job_id": "..."}   # job_id omitted/null = cancel all
   {"cmd": "shutdown"}
 """
 
@@ -26,6 +28,7 @@ import json
 import logging
 import sys
 import typing
+import uuid
 from pathlib import Path
 
 from pdf2zh_next.config.model import SettingsModel
@@ -179,12 +182,15 @@ def _serialize_event(event: dict) -> dict:
     return out
 
 
-async def _do_translate_one(settings_dict: dict, file_path: str, file_index: int) -> None:
-    """Translate a single file, tagging all events with file_index."""
+async def _do_translate_one(
+    job_id: str, settings_dict: dict, file_path: str, file_index: int
+) -> None:
+    """Translate a single file, tagging all events with job_id + file_index."""
     try:
         settings = SettingsModel(**settings_dict)
         async for event in do_translate_async_stream(settings, Path(file_path)):
             tagged = _serialize_event(event)
+            tagged["job_id"] = job_id
             tagged["file_index"] = file_index
             tagged["file_path"] = file_path
             _emit(tagged)
@@ -193,6 +199,7 @@ async def _do_translate_one(settings_dict: dict, file_path: str, file_index: int
     except TranslationError as e:
         _emit({
             "type": "error",
+            "job_id": job_id,
             "file_index": file_index,
             "file_path": file_path,
             "error": str(e),
@@ -203,16 +210,16 @@ async def _do_translate_one(settings_dict: dict, file_path: str, file_index: int
         })
     except asyncio.CancelledError:
         _emit({
-            "type": "error",
+            "type": "job_cancelled",
+            "job_id": job_id,
             "file_index": file_index,
             "file_path": file_path,
-            "error": "Translation cancelled",
-            "error_type": "CancelledError",
-            "details": "",
         })
+        raise
     except Exception as e:
         _emit({
             "type": "error",
+            "job_id": job_id,
             "file_index": file_index,
             "file_path": file_path,
             "error": str(e),
@@ -221,16 +228,13 @@ async def _do_translate_one(settings_dict: dict, file_path: str, file_index: int
         })
 
 
-async def _do_translate(settings_dict: dict, files: list[str]) -> None:
-    """Run translation for all files concurrently."""
+async def _do_translate(job_id: str, settings_dict: dict, files: list[str]) -> None:
+    """Run all files in a single job concurrently."""
     if len(files) == 1:
-        await _do_translate_one(settings_dict, files[0], 0)
+        await _do_translate_one(job_id, settings_dict, files[0], 0)
     else:
-        # Emit batch_start so frontend knows total count
-        _emit({"type": "batch_start", "total_files": len(files),
-               "files": [Path(f).name for f in files]})
         tasks = [
-            asyncio.create_task(_do_translate_one(settings_dict, f, i))
+            asyncio.create_task(_do_translate_one(job_id, settings_dict, f, i))
             for i, f in enumerate(files)
         ]
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -264,53 +268,84 @@ async def run_json_stream(settings: SettingsModel) -> None:
     protocol = asyncio.StreamReaderProtocol(reader)
     await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
-    current_task: asyncio.Task | None = None
+    running_jobs: dict[str, asyncio.Task] = {}
 
-    while True:
-        line = await reader.readline()
-        if not line:
-            break
-        try:
-            cmd = json.loads(line.decode().strip())
-        except json.JSONDecodeError:
-            continue
+    def _on_job_done(jid: str, task: asyncio.Task) -> None:
+        running_jobs.pop(jid, None)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc and not isinstance(exc, asyncio.CancelledError):
+            logger.error(f"Job {jid} crashed: {exc}", exc_info=exc)
 
-        cmd_type = cmd.get("cmd")
-
-        if cmd_type == "shutdown":
-            if current_task and not current_task.done():
-                current_task.cancel()
-                try:
-                    await current_task
-                except (asyncio.CancelledError, Exception):
-                    pass
-            break
-
-        elif cmd_type == "cancel":
-            if current_task and not current_task.done():
-                current_task.cancel()
-                try:
-                    await current_task
-                except (asyncio.CancelledError, Exception):
-                    pass
-                current_task = None
-
-        elif cmd_type == "translate":
-            settings_dict = cmd.get("settings", {})
-            files = cmd.get("files", [])
-            if current_task and not current_task.done():
-                current_task.cancel()
-                try:
-                    await current_task
-                except (asyncio.CancelledError, Exception):
-                    pass
-            current_task = asyncio.create_task(_do_translate(settings_dict, files))
-
-        elif cmd_type == "validate":
-            settings_dict = cmd.get("settings", {})
+    try:
+        while True:
+            line = await reader.readline()
+            if not line:
+                break
             try:
-                s = SettingsModel(**settings_dict)
-                s.validate_settings()
-                _emit({"type": "validation_result", "valid": True, "error": None})
-            except Exception as e:
-                _emit({"type": "validation_result", "valid": False, "error": str(e)})
+                cmd = json.loads(line.decode().strip())
+            except json.JSONDecodeError:
+                continue
+
+            cmd_type = cmd.get("cmd")
+
+            if cmd_type == "shutdown":
+                for t in list(running_jobs.values()):
+                    t.cancel()
+                if running_jobs:
+                    await asyncio.gather(
+                        *running_jobs.values(), return_exceptions=True
+                    )
+                break
+
+            elif cmd_type == "cancel":
+                target_id = cmd.get("job_id")
+                if target_id:
+                    t = running_jobs.get(target_id)
+                    if t is not None and not t.done():
+                        t.cancel()
+                    else:
+                        _emit({"type": "job_cancelled", "job_id": target_id})
+                else:
+                    for t in list(running_jobs.values()):
+                        t.cancel()
+
+            elif cmd_type == "translate":
+                jid = cmd.get("job_id") or uuid.uuid4().hex
+                settings_dict = cmd.get("settings", {})
+                files = cmd.get("files", [])
+                _emit({
+                    "type": "job_enqueued",
+                    "job_id": jid,
+                    "files": [Path(f).name for f in files],
+                    "file_paths": files,
+                    "total_files": len(files),
+                })
+                task = asyncio.create_task(
+                    _do_translate(jid, settings_dict, files)
+                )
+                running_jobs[jid] = task
+                task.add_done_callback(
+                    lambda t, jid=jid: _on_job_done(jid, t)
+                )
+
+            elif cmd_type == "validate":
+                settings_dict = cmd.get("settings", {})
+                try:
+                    s = SettingsModel(**settings_dict)
+                    s.validate_settings()
+                    _emit({"type": "validation_result", "valid": True, "error": None})
+                except Exception as e:
+                    _emit({"type": "validation_result", "valid": False, "error": str(e)})
+    finally:
+        for t in list(running_jobs.values()):
+            if not t.done():
+                t.cancel()
+        if running_jobs:
+            try:
+                await asyncio.gather(
+                    *running_jobs.values(), return_exceptions=True
+                )
+            except Exception:
+                pass

@@ -124,16 +124,28 @@ async fn send_cmd(
 #[tauri::command]
 pub async fn translate(
     cmd_sender: State<'_, CmdSender>,
+    job_id: String,
     settings: serde_json::Value,
     files: Vec<String>,
 ) -> Result<(), String> {
-    send_cmd(&cmd_sender, PythonCommand::Translate { settings, files }).await
+    send_cmd(
+        &cmd_sender,
+        PythonCommand::Translate {
+            job_id,
+            settings,
+            files,
+        },
+    )
+    .await
 }
 
-/// Send a cancel command.
+/// Send a cancel command. `job_id = None` cancels all jobs.
 #[tauri::command]
-pub async fn cancel_translate(cmd_sender: State<'_, CmdSender>) -> Result<(), String> {
-    send_cmd(&cmd_sender, PythonCommand::Cancel).await
+pub async fn cancel_translate(
+    cmd_sender: State<'_, CmdSender>,
+    job_id: Option<String>,
+) -> Result<(), String> {
+    send_cmd(&cmd_sender, PythonCommand::Cancel { job_id }).await
 }
 
 /// Validate settings.
