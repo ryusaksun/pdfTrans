@@ -81,6 +81,44 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(Color::DarkGray),
     ));
 
+    let mut advanced_lines = Vec::new();
+    push_non_empty(&mut advanced_lines, "翻译线程", &app.pool_max_workers_input);
+    push_non_empty(&mut advanced_lines, "术语QPS", &app.term_qps_input);
+    push_non_empty(
+        &mut advanced_lines,
+        "术语线程",
+        &app.term_pool_max_workers_input,
+    );
+    push_non_empty(
+        &mut advanced_lines,
+        "每部分页数",
+        &app.max_pages_per_part_input,
+    );
+    push_non_empty(&mut advanced_lines, "输出目录", &app.output_dir);
+    push_non_empty(&mut advanced_lines, "术语表CSV", &app.glossary_files);
+    if app.skip_scanned_detection {
+        advanced_lines.push("  跳过扫描检测".to_string());
+    }
+    if app.save_auto_extracted_glossary {
+        advanced_lines.push("  保存自动术语表".to_string());
+    }
+    if app.only_include_translated_page {
+        advanced_lines.push("  仅输出选中页".to_string());
+    }
+    if app.disable_auto_extract_glossary {
+        advanced_lines.push("  禁用自动术语抽取".to_string());
+    }
+    if !advanced_lines.is_empty() {
+        lines.push(Line::raw(""));
+        lines.push(Line::styled(
+            "高级参数:",
+            Style::default().fg(Color::DarkGray),
+        ));
+        for line in advanced_lines {
+            lines.push(Line::styled(line, Style::default().fg(Color::DarkGray)));
+        }
+    }
+
     // Engine params (show non-empty ones)
     if !app.engine_params.is_empty() {
         lines.push(Line::raw(""));
@@ -91,8 +129,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         for (k, v) in &app.engine_params {
             if !v.is_empty() {
                 // Mask sensitive values
-                let display = if k.contains("key") || k.contains("secret") || k.contains("token")
-                {
+                let display = if k.contains("key") || k.contains("secret") || k.contains("token") {
                     format!("  {k}: ****")
                 } else {
                     format!("  {k}: {v}")
@@ -119,4 +156,10 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 
     let para = Paragraph::new(lines);
     frame.render_widget(para, area);
+}
+
+fn push_non_empty(lines: &mut Vec<String>, label: &str, value: &str) {
+    if !value.trim().is_empty() {
+        lines.push(format!("  {label}: {}", value.trim()));
+    }
 }

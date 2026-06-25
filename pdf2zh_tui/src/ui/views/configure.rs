@@ -24,7 +24,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     // ── 文件 ──
     rows.push(Row::Section("── 文件 ──"));
     rows.push(Row::Field { index: 0 }); // file_input
-    // 已选文件列表（不可聚焦）
+                                        // 已选文件列表（不可聚焦）
     if app.selected_files.is_empty() {
         rows.push(Row::Static(
             "  (未选择文件，输入路径后按Enter添加，按Del删除)",
@@ -65,6 +65,16 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     rows.push(Row::Section("── 高级 ──"));
     rows.push(Row::Field { index: 10 + n }); // custom_prompt
     rows.push(Row::Field { index: 11 + n }); // min_text_length
+    rows.push(Row::Field { index: 12 + n }); // pool_max_workers
+    rows.push(Row::Field { index: 13 + n }); // term_qps
+    rows.push(Row::Field { index: 14 + n }); // term_pool_max_workers
+    rows.push(Row::Field { index: 15 + n }); // output_dir
+    rows.push(Row::Field { index: 16 + n }); // glossary_files
+    rows.push(Row::Field { index: 17 + n }); // max_pages_per_part
+    rows.push(Row::Field { index: 18 + n }); // skip_scanned_detection
+    rows.push(Row::Field { index: 19 + n }); // save_auto_extracted_glossary
+    rows.push(Row::Field { index: 20 + n }); // only_include_translated_page
+    rows.push(Row::Field { index: 21 + n }); // disable_auto_extract_glossary
 
     // 渲染可见行
     let visible_height = area.height as usize;
@@ -107,7 +117,14 @@ enum Row<'a> {
     Field { index: usize },
 }
 
-fn render_field(frame: &mut Frame, app: &App, field_idx: usize, n: usize, is_active: bool, area: Rect) {
+fn render_field(
+    frame: &mut Frame,
+    app: &App,
+    field_idx: usize,
+    n: usize,
+    is_active: bool,
+    area: Rect,
+) {
     let focused = is_active && app.focused_field == field_idx;
     let editing = app.editing && focused;
 
@@ -124,18 +141,32 @@ fn render_field(frame: &mut Frame, app: &App, field_idx: usize, n: usize, is_act
             render_labeled_field(frame, "文件路径: ", &display, style, area);
         }
         1 => {
-            let name = app.language_map
+            let name = app
+                .language_map
                 .get_index(app.lang_in_idx)
                 .map(|(k, _)| k.as_str())
                 .unwrap_or("English");
-            render_labeled_field(frame, "源语言:   ", &format!("{name} ▼"), dropdown_style(focused), area);
+            render_labeled_field(
+                frame,
+                "源语言:   ",
+                &format!("{name} ▼"),
+                dropdown_style(focused),
+                area,
+            );
         }
         2 => {
-            let name = app.language_map
+            let name = app
+                .language_map
                 .get_index(app.lang_out_idx)
                 .map(|(k, _)| k.as_str())
                 .unwrap_or("Simplified Chinese");
-            render_labeled_field(frame, "目标语言: ", &format!("{name} ▼"), dropdown_style(focused), area);
+            render_labeled_field(
+                frame,
+                "目标语言: ",
+                &format!("{name} ▼"),
+                dropdown_style(focused),
+                area,
+            );
         }
         3 => {
             let display = if editing {
@@ -145,25 +176,49 @@ fn render_field(frame: &mut Frame, app: &App, field_idx: usize, n: usize, is_act
             } else {
                 app.pages_input.clone()
             };
-            render_labeled_field(frame, "页面范围: ", &display, field_style(focused, editing), area);
+            render_labeled_field(
+                frame,
+                "页面范围: ",
+                &display,
+                field_style(focused, editing),
+                area,
+            );
         }
         4 => {
-            let name = app.engine_schemas
+            let name = app
+                .engine_schemas
                 .get(app.engine_idx)
                 .map(|s| s.name.as_str())
                 .unwrap_or("(无)");
-            render_labeled_field(frame, "翻译引擎: ", &format!("{name} ▼"), dropdown_style(focused), area);
+            render_labeled_field(
+                frame,
+                "翻译引擎: ",
+                &format!("{name} ▼"),
+                dropdown_style(focused),
+                area,
+            );
         }
         5 => {
             let qps_default = app.qps.to_string();
-            let display = if editing { &app.qps_input } else { &qps_default };
-            render_labeled_field(frame, "QPS:      ", display, field_style(focused, editing), area);
+            let display = if editing {
+                &app.qps_input
+            } else {
+                &qps_default
+            };
+            render_labeled_field(
+                frame,
+                "QPS:      ",
+                display,
+                field_style(focused, editing),
+                area,
+            );
         }
         f if f >= 6 && f < 6 + n => {
             let param_idx = f - 6;
             if let Some(schema) = app.engine_schemas.get(app.engine_idx) {
                 if let Some(field) = schema.fields.get(param_idx) {
-                    let value = app.engine_params
+                    let value = app
+                        .engine_params
                         .get(&field.name)
                         .map(|s| s.as_str())
                         .unwrap_or("");
@@ -184,13 +239,25 @@ fn render_field(frame: &mut Frame, app: &App, field_idx: usize, n: usize, is_act
                     };
 
                     let label = format!("{:width$}", format!("{}: ", field.name), width = 10);
-                    render_labeled_field(frame, &label, &display_value, field_style(focused, editing), area);
+                    render_labeled_field(
+                        frame,
+                        &label,
+                        &display_value,
+                        field_style(focused, editing),
+                        area,
+                    );
                 }
             }
         }
         f if f == 6 + n => render_checkbox(frame, !app.no_dual, "输出双语PDF", focused, area),
         f if f == 7 + n => render_checkbox(frame, !app.no_mono, "输出单语PDF", focused, area),
-        f if f == 8 + n => render_checkbox(frame, app.dual_translate_first, "双语翻译优先", focused, area),
+        f if f == 8 + n => render_checkbox(
+            frame,
+            app.dual_translate_first,
+            "双语翻译优先",
+            focused,
+            area,
+        ),
         f if f == 9 + n => render_checkbox(frame, app.skip_clean, "跳过清理", focused, area),
         f if f == 10 + n => {
             let display = if editing {
@@ -200,7 +267,13 @@ fn render_field(frame: &mut Frame, app: &App, field_idx: usize, n: usize, is_act
             } else {
                 app.custom_prompt.clone()
             };
-            render_labeled_field(frame, "自定义提示: ", &display, field_style(focused, editing), area);
+            render_labeled_field(
+                frame,
+                "自定义提示: ",
+                &display,
+                field_style(focused, editing),
+                area,
+            );
         }
         f if f == 11 + n => {
             let display = if editing {
@@ -210,9 +283,131 @@ fn render_field(frame: &mut Frame, app: &App, field_idx: usize, n: usize, is_act
             } else {
                 app.min_text_length.clone()
             };
-            render_labeled_field(frame, "最小文本长度: ", &display, field_style(focused, editing), area);
+            render_labeled_field(
+                frame,
+                "最小文本长度: ",
+                &display,
+                field_style(focused, editing),
+                area,
+            );
+        }
+        f if f == 12 + n => {
+            let display = numeric_display(editing, &app.pool_max_workers_input);
+            render_labeled_field(
+                frame,
+                "翻译线程: ",
+                &display,
+                field_style(focused, editing),
+                area,
+            );
+        }
+        f if f == 13 + n => {
+            let display = numeric_display(editing, &app.term_qps_input);
+            render_labeled_field(
+                frame,
+                "术语QPS:  ",
+                &display,
+                field_style(focused, editing),
+                area,
+            );
+        }
+        f if f == 14 + n => {
+            let display = numeric_display(editing, &app.term_pool_max_workers_input);
+            render_labeled_field(
+                frame,
+                "术语线程: ",
+                &display,
+                field_style(focused, editing),
+                area,
+            );
+        }
+        f if f == 15 + n => {
+            let display = text_display(editing, &app.output_dir, "默认");
+            render_labeled_field(
+                frame,
+                "输出目录: ",
+                &display,
+                field_style(focused, editing),
+                area,
+            );
+        }
+        f if f == 16 + n => {
+            let display = text_display(editing, &app.glossary_files, "(未设置)");
+            render_labeled_field(
+                frame,
+                "术语表CSV: ",
+                &display,
+                field_style(focused, editing),
+                area,
+            );
+        }
+        f if f == 17 + n => {
+            let display = numeric_display(editing, &app.max_pages_per_part_input);
+            render_labeled_field(
+                frame,
+                "每部分页数: ",
+                &display,
+                field_style(focused, editing),
+                area,
+            );
+        }
+        f if f == 18 + n => {
+            render_checkbox(
+                frame,
+                app.skip_scanned_detection,
+                "跳过扫描检测",
+                focused,
+                area,
+            );
+        }
+        f if f == 19 + n => {
+            render_checkbox(
+                frame,
+                app.save_auto_extracted_glossary,
+                "保存自动术语表",
+                focused,
+                area,
+            );
+        }
+        f if f == 20 + n => {
+            render_checkbox(
+                frame,
+                app.only_include_translated_page,
+                "仅输出选中页",
+                focused,
+                area,
+            );
+        }
+        f if f == 21 + n => {
+            render_checkbox(
+                frame,
+                app.disable_auto_extract_glossary,
+                "禁用自动术语抽取",
+                focused,
+                area,
+            );
         }
         _ => {}
+    }
+}
+
+fn numeric_display(editing: bool, value: &str) -> String {
+    if editing {
+        format!("{value}|")
+    } else if value.is_empty() {
+        "默认".to_string()
+    } else {
+        value.to_string()
+    }
+}
+
+fn text_display(editing: bool, value: &str, empty_label: &str) -> String {
+    if editing {
+        format!("{value}|")
+    } else if value.is_empty() {
+        empty_label.to_string()
+    } else {
+        value.to_string()
     }
 }
 

@@ -105,6 +105,17 @@ class SubprocessCrashError(TranslationError):
         return super().__str__()
 
 
+def _is_scanned_pdf_error(error: TranslationError) -> bool:
+    parts = [str(error)]
+    for attr in ("original_error", "raw_message", "traceback_str"):
+        value = getattr(error, attr, None)
+        if value:
+            parts.append(str(value))
+
+    text = "\n".join(parts)
+    return "Scanned PDF detected" in text or "ScannedPDFError" in text
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -641,6 +652,20 @@ async def do_translate_async_stream(
             if event["type"] == "finish":
                 break
     except TranslationError as e:
+        if (
+            not settings.pdf.skip_scanned_detection
+            and _is_scanned_pdf_error(e)
+        ):
+            logger.warning(
+                "Scanned PDF detection failed; retrying once with "
+                "skip_scanned_detection=True"
+            )
+            retry_settings = settings.model_copy(deep=True)
+            retry_settings.pdf.skip_scanned_detection = True
+            async for event in do_translate_async_stream(retry_settings, file):
+                yield event
+            return
+
         # Log and re-raise structured errors
         logger.error(f"Translation error: {e}")
         if isinstance(e, BabeldocError) and e.original_error:
