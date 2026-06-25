@@ -184,6 +184,24 @@ class TestPDFSettings:
         ):
             settings.validate_settings()
 
+        settings = CLIEnvSettingsModel(
+            openai=True,
+            openai_detail={"openai_api_key": "test-key"},
+            pdf={"max_pages_per_part": 0},
+        )
+        with pytest.raises(
+            ValueError, match="max_pages_per_part must be greater than 0"
+        ):
+            settings.validate_settings()
+
+        # Small chunks are useful for quality-preserving retries on long papers.
+        settings = CLIEnvSettingsModel(
+            openai=True,
+            openai_detail={"openai_api_key": "test-key"},
+            pdf={"max_pages_per_part": 8},
+        )
+        settings.validate_settings()
+
         # Test invalid short_line_split_factor
         settings = CLIEnvSettingsModel(
             openai=True,

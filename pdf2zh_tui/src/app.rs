@@ -59,7 +59,8 @@ pub struct App {
     // 0=file_input, 1=lang_in, 2=lang_out, 3=pages,
     // 4=engine, 5=qps, 6..6+N=engine_params,
     // 6+N=no_dual, 7+N=no_mono, 8+N=dual_translate_first, 9+N=skip_clean,
-    // 10+N=custom_prompt, 11+N=min_text_length
+    // 10+N=custom_prompt, 11+N=min_text_length,
+    // 12+N..21+N=advanced translation/pdf controls
     pub selected_files: Vec<String>,
     pub file_input: String,
     pub lang_in_idx: usize,
@@ -77,6 +78,16 @@ pub struct App {
     pub custom_prompt: String,
     pub min_text_length: String,
     pub skip_clean: bool,
+    pub pool_max_workers_input: String,
+    pub term_qps_input: String,
+    pub term_pool_max_workers_input: String,
+    pub output_dir: String,
+    pub glossary_files: String,
+    pub max_pages_per_part_input: String,
+    pub skip_scanned_detection: bool,
+    pub save_auto_extracted_glossary: bool,
+    pub only_include_translated_page: bool,
+    pub disable_auto_extract_glossary: bool,
 
     // Progress state
     pub progress: ProgressState,
@@ -159,6 +170,16 @@ impl App {
             custom_prompt: String::new(),
             min_text_length: String::new(),
             skip_clean: false,
+            pool_max_workers_input: String::new(),
+            term_qps_input: String::new(),
+            term_pool_max_workers_input: String::new(),
+            output_dir: String::new(),
+            glossary_files: String::new(),
+            max_pages_per_part_input: String::new(),
+            skip_scanned_detection: false,
+            save_auto_extracted_glossary: false,
+            only_include_translated_page: false,
+            disable_auto_extract_glossary: false,
             progress: ProgressState::default(),
             results: Vec::new(),
             token_usage: None,
@@ -184,8 +205,8 @@ impl App {
         // file_input(1) + lang_in(1) + lang_out(1) + pages(1) +
         // engine(1) + qps(1) + engine_params(N) +
         // no_dual(1) + no_mono(1) + dual_translate_first(1) + skip_clean(1) +
-        // custom_prompt(1) + min_text_length(1) = 12 + N
-        12 + self.engine_param_count()
+        // custom_prompt(1) + min_text_length(1) + advanced(10) = 22 + N
+        22 + self.engine_param_count()
     }
 
     /// Is the currently focused field a dropdown?
@@ -196,9 +217,17 @@ impl App {
     /// Is the currently focused field a checkbox?
     fn is_checkbox_field(&self) -> bool {
         let n = self.engine_param_count();
-        let checkbox_start = 6 + n;
-        let checkbox_end = 9 + n;
-        self.focused_field >= checkbox_start && self.focused_field <= checkbox_end
+        matches!(
+            self.focused_field,
+            f if f == 6 + n
+                || f == 7 + n
+                || f == 8 + n
+                || f == 9 + n
+                || f == 18 + n
+                || f == 19 + n
+                || f == 20 + n
+                || f == 21 + n
+        )
     }
 
     /// Get the dropdown target for the current focused field.
@@ -254,15 +283,16 @@ impl App {
         // 15+N: ── 高级 ──
         // 16+N: custom_prompt (field 10+N)
         // 17+N: min_text_length (field 11+N)
+        // 18+N..27+N: advanced controls (fields 12+N..21+N)
 
         let file_list_extra = self.selected_files.len().max(1);
         match field {
-            0 => 1,                                  // file_input
-            1 => 2 + file_list_extra + 1,            // lang_in (after section header)
-            2 => 2 + file_list_extra + 2,            // lang_out
-            3 => 2 + file_list_extra + 3,            // pages
-            4 => 2 + file_list_extra + 5,            // engine (after section header)
-            5 => 2 + file_list_extra + 6,            // qps
+            0 => 1,                                              // file_input
+            1 => 2 + file_list_extra + 1,                        // lang_in (after section header)
+            2 => 2 + file_list_extra + 2,                        // lang_out
+            3 => 2 + file_list_extra + 3,                        // pages
+            4 => 2 + file_list_extra + 5,                        // engine (after section header)
+            5 => 2 + file_list_extra + 6,                        // qps
             f if f < 6 + n => 2 + file_list_extra + 7 + (f - 6), // engine params
             f if f == 6 + n => 2 + file_list_extra + 7 + n + 1,  // no_dual (after section)
             f if f == 7 + n => 2 + file_list_extra + 7 + n + 2,  // no_mono
@@ -270,6 +300,16 @@ impl App {
             f if f == 9 + n => 2 + file_list_extra + 7 + n + 4,  // skip_clean
             f if f == 10 + n => 2 + file_list_extra + 7 + n + 6, // custom_prompt (after section)
             f if f == 11 + n => 2 + file_list_extra + 7 + n + 7, // min_text_length
+            f if f == 12 + n => 2 + file_list_extra + 7 + n + 8,
+            f if f == 13 + n => 2 + file_list_extra + 7 + n + 9,
+            f if f == 14 + n => 2 + file_list_extra + 7 + n + 10,
+            f if f == 15 + n => 2 + file_list_extra + 7 + n + 11,
+            f if f == 16 + n => 2 + file_list_extra + 7 + n + 12,
+            f if f == 17 + n => 2 + file_list_extra + 7 + n + 13,
+            f if f == 18 + n => 2 + file_list_extra + 7 + n + 14,
+            f if f == 19 + n => 2 + file_list_extra + 7 + n + 15,
+            f if f == 20 + n => 2 + file_list_extra + 7 + n + 16,
+            f if f == 21 + n => 2 + file_list_extra + 7 + n + 17,
             _ => 0,
         }
     }
@@ -565,6 +605,28 @@ impl App {
                     self.min_text_length.push(c);
                 }
             }
+            f if f == 12 + n => {
+                if c.is_ascii_digit() {
+                    self.pool_max_workers_input.push(c);
+                }
+            }
+            f if f == 13 + n => {
+                if c.is_ascii_digit() {
+                    self.term_qps_input.push(c);
+                }
+            }
+            f if f == 14 + n => {
+                if c.is_ascii_digit() {
+                    self.term_pool_max_workers_input.push(c);
+                }
+            }
+            f if f == 15 + n => self.output_dir.push(c),
+            f if f == 16 + n => self.glossary_files.push(c),
+            f if f == 17 + n => {
+                if c.is_ascii_digit() {
+                    self.max_pages_per_part_input.push(c);
+                }
+            }
             _ => {}
         }
     }
@@ -573,9 +635,15 @@ impl App {
     fn handle_backspace(&mut self) {
         let n = self.engine_param_count();
         match self.focused_field {
-            0 => { self.file_input.pop(); }
-            3 => { self.pages_input.pop(); }
-            5 => { self.qps_input.pop(); }
+            0 => {
+                self.file_input.pop();
+            }
+            3 => {
+                self.pages_input.pop();
+            }
+            5 => {
+                self.qps_input.pop();
+            }
             f if (6..6 + n).contains(&f) => {
                 let param_idx = f - 6;
                 if let Some(schema) = self.engine_schemas.get(self.engine_idx) {
@@ -586,8 +654,30 @@ impl App {
                     }
                 }
             }
-            f if f == 10 + n => { self.custom_prompt.pop(); }
-            f if f == 11 + n => { self.min_text_length.pop(); }
+            f if f == 10 + n => {
+                self.custom_prompt.pop();
+            }
+            f if f == 11 + n => {
+                self.min_text_length.pop();
+            }
+            f if f == 12 + n => {
+                self.pool_max_workers_input.pop();
+            }
+            f if f == 13 + n => {
+                self.term_qps_input.pop();
+            }
+            f if f == 14 + n => {
+                self.term_pool_max_workers_input.pop();
+            }
+            f if f == 15 + n => {
+                self.output_dir.pop();
+            }
+            f if f == 16 + n => {
+                self.glossary_files.pop();
+            }
+            f if f == 17 + n => {
+                self.max_pages_per_part_input.pop();
+            }
             _ => {}
         }
     }
@@ -600,6 +690,16 @@ impl App {
             f if f == 7 + n => self.no_mono = !self.no_mono,
             f if f == 8 + n => self.dual_translate_first = !self.dual_translate_first,
             f if f == 9 + n => self.skip_clean = !self.skip_clean,
+            f if f == 18 + n => self.skip_scanned_detection = !self.skip_scanned_detection,
+            f if f == 19 + n => {
+                self.save_auto_extracted_glossary = !self.save_auto_extracted_glossary;
+            }
+            f if f == 20 + n => {
+                self.only_include_translated_page = !self.only_include_translated_page;
+            }
+            f if f == 21 + n => {
+                self.disable_auto_extract_glossary = !self.disable_auto_extract_glossary;
+            }
             _ => {}
         }
     }
@@ -629,9 +729,11 @@ impl App {
                 DropdownTarget::LangIn | DropdownTarget::LangOut => {
                     self.language_map.keys().map(|k| k.as_str()).collect()
                 }
-                DropdownTarget::Engine => {
-                    self.engine_schemas.iter().map(|s| s.name.as_str()).collect()
-                }
+                DropdownTarget::Engine => self
+                    .engine_schemas
+                    .iter()
+                    .map(|s| s.name.as_str())
+                    .collect(),
             };
             let len = items.len();
             for offset in 1..=len {
@@ -658,9 +760,11 @@ impl App {
                 self.engine_schemas = engines;
                 self.language_map = languages;
                 // 默认引擎: Gemini
-                if let Some(idx) = self.engine_schemas.iter().position(|s| {
-                    s.name.eq_ignore_ascii_case("gemini") || s.cli_flag == "gemini"
-                }) {
+                if let Some(idx) = self
+                    .engine_schemas
+                    .iter()
+                    .position(|s| s.name.eq_ignore_ascii_case("gemini") || s.cli_flag == "gemini")
+                {
                     self.engine_idx = idx;
                 }
                 self.reset_engine_params();
@@ -708,7 +812,8 @@ impl App {
                     self.screen = Screen::Results;
                 } else {
                     self.progress.current_file_idx = self.progress.finished_count;
-                    if let Some(next_file) = self.selected_files.get(self.progress.current_file_idx) {
+                    if let Some(next_file) = self.selected_files.get(self.progress.current_file_idx)
+                    {
                         self.progress.current_file = std::path::Path::new(next_file)
                             .file_name()
                             .and_then(|n| n.to_str())
@@ -719,8 +824,7 @@ impl App {
                     self.progress.stage_progress = 0.0;
                     self.push_log(format!(
                         "文件 {}/{} 翻译完成",
-                        self.progress.finished_count,
-                        self.progress.total_files,
+                        self.progress.finished_count, self.progress.total_files,
                     ));
                 }
             }
@@ -790,8 +894,7 @@ impl App {
 
         if !self.min_text_length.is_empty() {
             if let Ok(n) = self.min_text_length.parse::<i64>() {
-                settings["translation"]["min_text_length"] =
-                    serde_json::Value::Number(n.into());
+                settings["translation"]["min_text_length"] = serde_json::Value::Number(n.into());
             }
         }
 
@@ -799,9 +902,41 @@ impl App {
             settings["pdf"]["skip_clean"] = serde_json::Value::Bool(true);
         }
 
+        if let Some(n) = parse_positive_i64(&self.pool_max_workers_input) {
+            settings["translation"]["pool_max_workers"] = serde_json::Value::Number(n.into());
+        }
+        if let Some(n) = parse_positive_i64(&self.term_qps_input) {
+            settings["translation"]["term_qps"] = serde_json::Value::Number(n.into());
+        }
+        if let Some(n) = parse_positive_i64(&self.term_pool_max_workers_input) {
+            settings["translation"]["term_pool_max_workers"] = serde_json::Value::Number(n.into());
+        }
+        if !self.output_dir.trim().is_empty() {
+            settings["translation"]["output"] =
+                serde_json::Value::String(self.output_dir.trim().to_string());
+        }
+        if !self.glossary_files.trim().is_empty() {
+            settings["translation"]["glossaries"] =
+                serde_json::Value::String(self.glossary_files.trim().to_string());
+        }
+        if self.save_auto_extracted_glossary {
+            settings["translation"]["save_auto_extracted_glossary"] = serde_json::Value::Bool(true);
+        }
+        if self.disable_auto_extract_glossary {
+            settings["translation"]["no_auto_extract_glossary"] = serde_json::Value::Bool(true);
+        }
+        if let Some(n) = parse_positive_i64(&self.max_pages_per_part_input) {
+            settings["pdf"]["max_pages_per_part"] = serde_json::Value::Number(n.into());
+        }
+        if self.skip_scanned_detection {
+            settings["pdf"]["skip_scanned_detection"] = serde_json::Value::Bool(true);
+        }
+        if self.only_include_translated_page {
+            settings["pdf"]["only_include_translated_page"] = serde_json::Value::Bool(true);
+        }
+
         if let Some(schema) = self.engine_schemas.get(self.engine_idx) {
-            let mut engine_settings =
-                serde_json::json!({"translate_engine_type": schema.name});
+            let mut engine_settings = serde_json::json!({"translate_engine_type": schema.name});
             for field in &schema.fields {
                 if let Some(value) = self.engine_params.get(&field.name) {
                     if !value.is_empty() {
@@ -868,10 +1003,7 @@ impl App {
         self.token_usage = None;
         self.screen = Screen::Translating;
         self.log_lines.clear();
-        self.push_log(format!(
-            "开始翻译 {} 个文件...",
-            self.selected_files.len()
-        ));
+        self.push_log(format!("开始翻译 {} 个文件...", self.selected_files.len()));
 
         None
     }
@@ -915,7 +1047,10 @@ fn merge_token_usage(
         if let Some(existing_entry) = existing.get_mut(key).and_then(|v| v.as_object_mut()) {
             for field in ["total", "prompt", "completion", "cache_hit_prompt"] {
                 let add = new_entry.get(field).and_then(|v| v.as_i64()).unwrap_or(0);
-                let cur = existing_entry.get(field).and_then(|v| v.as_i64()).unwrap_or(0);
+                let cur = existing_entry
+                    .get(field)
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
                 existing_entry.insert(
                     field.to_string(),
                     serde_json::Value::Number((cur + add).into()),
@@ -926,4 +1061,46 @@ fn merge_token_usage(
         }
     }
     existing
+}
+
+fn parse_positive_i64(input: &str) -> Option<i64> {
+    input.trim().parse::<i64>().ok().filter(|value| *value > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::App;
+
+    #[test]
+    fn build_settings_json_includes_advanced_translation_and_pdf_options() {
+        let mut app = App::new();
+        app.qps = 5;
+        app.pool_max_workers_input = "6".to_string();
+        app.term_qps_input = "4".to_string();
+        app.term_pool_max_workers_input = "3".to_string();
+        app.output_dir = "/tmp/pdf2zh-output".to_string();
+        app.glossary_files = "/tmp/glossary.csv".to_string();
+        app.max_pages_per_part_input = "50".to_string();
+        app.skip_scanned_detection = true;
+        app.save_auto_extracted_glossary = true;
+        app.only_include_translated_page = true;
+        app.disable_auto_extract_glossary = true;
+
+        let settings = app.build_settings_json();
+
+        assert_eq!(settings["translation"]["qps"], 5);
+        assert_eq!(settings["translation"]["pool_max_workers"], 6);
+        assert_eq!(settings["translation"]["term_qps"], 4);
+        assert_eq!(settings["translation"]["term_pool_max_workers"], 3);
+        assert_eq!(settings["translation"]["output"], "/tmp/pdf2zh-output");
+        assert_eq!(settings["translation"]["glossaries"], "/tmp/glossary.csv");
+        assert_eq!(
+            settings["translation"]["save_auto_extracted_glossary"],
+            true
+        );
+        assert_eq!(settings["translation"]["no_auto_extract_glossary"], true);
+        assert_eq!(settings["pdf"]["max_pages_per_part"], 50);
+        assert_eq!(settings["pdf"]["skip_scanned_detection"], true);
+        assert_eq!(settings["pdf"]["only_include_translated_page"], true);
+    }
 }

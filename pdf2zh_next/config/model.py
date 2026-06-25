@@ -360,7 +360,10 @@ class SettingsModel(BaseModel):
             self.pdf.skip_clean = True
             self.pdf.disable_rich_text_translate = True
 
-        if self.pdf.max_pages_per_part and self.pdf.max_pages_per_part < 0:
+        if (
+            self.pdf.max_pages_per_part is not None
+            and self.pdf.max_pages_per_part <= 0
+        ):
             raise ValueError("max_pages_per_part must be greater than 0")
 
         # Validate and store watermark mode
@@ -404,9 +407,6 @@ class SettingsModel(BaseModel):
             raise ValueError(
                 "short_line_split_factor must be greater than or equal to 0.1"
             )
-
-        if self.pdf.max_pages_per_part and self.pdf.max_pages_per_part < 50:
-            raise ValueError("max_pages_per_part must be greater than or equal to 50")
 
         if (
             self.translation.primary_font_family
